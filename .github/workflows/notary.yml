@@ -1,0 +1,42 @@
+name: Verify and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  verify_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Pull Docker Image from ECR
+        run: |
+          docker pull ${{ secrets.ECR_REGISTRY }}/my-repo:latest
+
+      - name: Set up Notary CLI
+        run: |
+          curl -fsSL https://github.com/theupdateframework/notary/releases/download/v0.8.0/notary-0.8.0-linux-amd64.tar.gz | tar xz
+          sudo mv notary /usr/local/bin/notary
+
+      - name: Verify Docker Image Signature
+        run: |
+          notary -s https://notary-server-url:port -d /path/to/notary/data/ verify ${{ secrets.ECR_REGISTRY }}/my-repo:latest
+        continue-on-error: false
+
+      - name: Deploy to EKS
+        if: success()
+        uses: aws-actions/eks-deploy@v1
+        with:
+          cluster-name: ${{ secrets.EKS_CLUSTER_NAME }}
+          kubeconfig: ${{ secrets.KUBECONFIG }}
+          manifest: kubernetes/deployment.yaml
